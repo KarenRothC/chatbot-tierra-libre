@@ -1,0 +1,7 @@
+node_modules/
+.env
+google-key.json
+credenciales.json
+*_sessions/
+*.log
+*.png
