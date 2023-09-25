@@ -15,6 +15,11 @@ const {
 const QRPortalWeb = require("@bot-whatsapp/portal");
 const BaileysProvider = require("@bot-whatsapp/provider/baileys");
 const MockAdapter = require("@bot-whatsapp/database/mock");
+const ChatGPTClass = require("./chatgpt.class");
+const { PROMPT } = require("./prompt")
+
+const ChatGPTInstance = new ChatGPTClass();
+
 
 const serviceAccountAuth = new JWT({
   email: CREDENTIALS.client_email,
@@ -36,8 +41,7 @@ async function consultarInventario(categoria) {
   await doc.loadInfo();
   let sheet = doc.sheetsByTitle["Hoja 2"]; // AQUÍ DEBES PONER EL NOMBRE DE TU HOJA
 
-  consultados = [
-  ];
+  consultados = [];
 
   const rows = await sheet.getRows();
   for (let i = 0; i < rows.length; i++) {
@@ -45,20 +49,28 @@ async function consultarInventario(categoria) {
 
     if (row.get("Categoria") === categoria && row.get("Stock") > 0) {
       // AQUÍ LE PEDIMOS A LA FUNCION QUE CONSULTE LOS DATOS QUE QUEREMOS CONSULTAR EJEMPLO:
-      consultados["Producto"] = row.get("Producto");
-      consultados["Stock"] = row.get("Stock"); 
+      const objeto = {
+        producto: row.get("Producto"),
+        stock: row.get("Stock")
+      };
+     consultados.push(objeto)
     }
   }
   console.log(consultados)
   return consultados;
 }
 
+const flowConfirmar = addKeyword('si confirmo')
+  .addAnswer('Continuamos con tu pedido')  
+
 let STATUS = {};
 
-const flowHola = addKeyword("Hola")
-  .addAnswer("Hola! Bienvenido a Tierra Libre")
+const flowPrincipal = addKeyword("Hola")
+  .addAnswer("Hola! Bienvenido a Tierra Libre", null, async() => {
+    await ChatGPTInstance.handleMsgChatGPT(PROMPT)
+  })
   .addAnswer(
-    "Para comenzar escribe el nombre de la categoria de productos que te interesa comprar"
+    "Para comenzar escribe el *nombre* de la categoria de productos que te interesa comprar"
   )
 
   .addAnswer([
@@ -85,15 +97,83 @@ const flowHola = addKeyword("Hola")
       categoria = ctx.body;
 
       await consultarInventario(categoria);
-
-      const Producto = consultados["Producto"];
-      const Stock = consultados["Stock"];
  
+      const mapeoDeLista = consultados.map((item)=> item.producto + ' x' + item.stock).join('\n')
       await flowDynamic(
-        `- *Producto*: ${Producto}\n- *Stock*: ${Stock}\n`
+        mapeoDeLista
       );
     }
   )
+
+  .addAnswer(
+    "Te gustaria pedir alguno de estos productos? dime cuales", 
+    {capture : true},
+    async(ctx, {flowDynamic, fallBack}) => {
+      const response = await ChatGPTInstance.handleMsgChatGPT(ctx.body);
+      const message = response.text;
+      if(ctx.body.toUpperCase() !== 'si confirmo'){
+        await fallBack(message);
+      }
+    }, [flowConfirmar]
+  )
+
+const main = async () => {
+  const adapterDB = new MockAdapter();
+  const adapterFlow = createFlow([flowPrincipal]);
+  const adapterProvider = createProvider(BaileysProvider);
+
+  createBot({
+    flow: adapterFlow,
+    provider: adapterProvider,
+    database: adapterDB,
+  });
+
+  QRPortalWeb();
+};
+
+main();
+
+/*const API = 'https://fakestoreapi.com/products';
+
+const flowLista = addKeyword(['lista']) 
+    .addAnswer('Genial, te envío la lista de productos en unos segundos', null, 
+    async (ctx, {flowDynamic}) => {
+        let contador = 1;
+        const respuesta = await axios(API)
+
+        for (const item of respuesta.data) {
+            if(contador>4) break;
+            contador++
+            flowDynamic({body:item.title, media:item.image})
+        }
+    }
+    )
+    
+const flowHumano = addKeyword(['humano']) 
+    .addAnswer('En breve te contactaremos...')
+
+const flowPrincipal = addKeyword(['hola', 'ole', 'alo', 'ola', 'buenas'])
+    .addAnswer(['*Bienvenido a Tierra Libre*', 'Espero que estes teniendo un buen dia'])
+    .addAnswer(
+        [
+            'Escribe *lista* para enviarte la lista de productos',
+            'Escribe *humano* para contactar contigo'
+        ],
+         null, 
+         null, 
+         [flowLista, flowHumano])
+
+
+
+
+const flowDespedida = addKeyword(['chao', 'nos vemos'])
+    .addAnswer(['chao nos vemoooo'])
+
+*/
+/**
+ * Esta es la funcion importante es la que realmente inicia
+ * el chatbot.
+ */
 
 
   /*.addAnswer(
@@ -218,61 +298,3 @@ const flowConsultar = addKeyword(
 
 /////////////////////       ESTA FUNCION CONSULTA LOS DATOS DE UNA FILA !SEGÚN EL TELÉFONO!    /////////////////////////
 */
-
-const main = async () => {
-  const adapterDB = new MockAdapter();
-  const adapterFlow = createFlow([flowHola]);
-  const adapterProvider = createProvider(BaileysProvider);
-
-  createBot({
-    flow: adapterFlow,
-    provider: adapterProvider,
-    database: adapterDB,
-  });
-
-  QRPortalWeb();
-};
-
-main();
-
-/*const API = 'https://fakestoreapi.com/products';
-
-const flowLista = addKeyword(['lista']) 
-    .addAnswer('Genial, te envío la lista de productos en unos segundos', null, 
-    async (ctx, {flowDynamic}) => {
-        let contador = 1;
-        const respuesta = await axios(API)
-
-        for (const item of respuesta.data) {
-            if(contador>4) break;
-            contador++
-            flowDynamic({body:item.title, media:item.image})
-        }
-    }
-    )
-    
-const flowHumano = addKeyword(['humano']) 
-    .addAnswer('En breve te contactaremos...')
-
-const flowPrincipal = addKeyword(['hola', 'ole', 'alo', 'ola', 'buenas'])
-    .addAnswer(['*Bienvenido a Tierra Libre*', 'Espero que estes teniendo un buen dia'])
-    .addAnswer(
-        [
-            'Escribe *lista* para enviarte la lista de productos',
-            'Escribe *humano* para contactar contigo'
-        ],
-         null, 
-         null, 
-         [flowLista, flowHumano])
-
-
-
-
-const flowDespedida = addKeyword(['chao', 'nos vemos'])
-    .addAnswer(['chao nos vemoooo'])
-
-*/
-/**
- * Esta es la funcion importante es la que realmente inicia
- * el chatbot.
- */
