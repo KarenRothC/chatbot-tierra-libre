@@ -3,6 +3,7 @@ const fs = require("fs");
 const RESPONSES_SHEET_ID = "1K-BDGuGn5ndCkCx75hwbtAb4tINTmp8R4JefggcJfTs"; //Aquí pondras el ID de tu hoja de Sheets
 const CREDENTIALS = JSON.parse(fs.readFileSync("./credenciales.json"));
 const { JWT } = require("google-auth-library");
+const { getDay } = require ("date-fns");
 
 const {
   createBot,
@@ -10,6 +11,7 @@ const {
   createFlow,
   addKeyword,
   addAnswer,
+  EVENTS
 } = require("@bot-whatsapp/bot");
 
 const QRPortalWeb = require("@bot-whatsapp/portal");
@@ -35,7 +37,46 @@ const doc = new GoogleSpreadsheet(RESPONSES_SHEET_ID, serviceAccountAuth);
 3) ➡️ Añade el nombre de la columna de Sheets junto con su variable
                       */
 
+ /**
+   * Guardar pedido
+   * @param {*} data
+   */
+ async function saveOrder (data = {})  {
+  console.log(data)
+  await doc.loadInfo();
+  const sheet = doc.sheetsByTitle["Hoja 1"]; // the first sheet
+  const order = await sheet.addRow({
+    fecha: data.fecha,
+    telefono: data.telefono,
+    nombre: data.nombre,
+    pedido: data.pedido,
+  });
 
+  return order
+};
+
+
+
+/*const flowPrueba = addKeyword('prueba')
+.addAnswer('Mensaje', null,
+  async (ctx, { flowDynamic }) => {
+    state = {
+      nombre: 'Karen Roth',
+      pedido: ' Pan de molde ingral x2 y pan pita integral x20'
+    }
+
+  
+  await saveOrder({
+    fecha: new Date().toDateString(),
+    telefono: ctx.from,
+    nombre: state.nombre,
+    pedido: state.pedido,
+  });
+  await flowDynamic({
+    body: `Gracias ${state.nombre} por realizar tu pedido en Tierra Libre, puedes pasar a retirarlo manana en la panaderia de 10:00 a 18:00 hrs `
+  })
+}
+ )*/
 
 async function consultarInventario(categoria) {
   await doc.loadInfo();
@@ -60,37 +101,69 @@ async function consultarInventario(categoria) {
   return consultados;
 }
 
-const flowConfirmar = addKeyword('si confirmo')
-  .addAnswer('Continuamos con tu pedido')  
+const flowGenerarPedido = addKeyword('Listo')
+ .addAction(
+  async (ctx, { state, flowDynamic }) => {
+    const currentState = state.getMyState();
+  await saveOrder({
+    fecha: new Date().toDateString(),
+    telefono: ctx.from,
+    nombre: currentState.nombre,
+    pedido: currentState.pedido,
+  });
+  await flowDynamic({
+    body: `Gracias ${currentState.nombre} por realizar tu pedido en Tierra Libre, puedes pasar a retirarlo manana en la panaderia de 10:00 a 18:00 hrs `
+  })
+}
+ )
 
-let STATUS = {};
+const flowConfirmarPagar = addKeyword('si confirmo') 
+  .addAnswer('Porfavor escribe tu nombre y apellido',
+  {capture: true},
+  async(ctx, { state }) => {
+    telefono = ctx.from;
+    state.update({ nombre: ctx.body });
+  }
+  )
+  .addAnswer('Perfecto, te dejo el link de pago ...')
+  .addAnswer('Cuando realices el pago escribe *Listo*', null, null, flowGenerarPedido)
 
-const flowPrincipal = addKeyword("Hola")
+
+const flowPrincipal = addKeyword(EVENTS.WELCOME)
   .addAnswer("Hola! Bienvenido a Tierra Libre", null, async() => {
     await ChatGPTInstance.handleMsgChatGPT(PROMPT)
   })
   .addAnswer(
-    "Para comenzar escribe el *nombre* de la categoria de productos que te interesa comprar"
-  )
+    "Te envio el catalogo de productos",
+  {
+    media: 'C:/Users/Usuario/Documents/Chatbot/base-baileys-memory/catalogo-test.png'
+  })
+  .addAnswer('Si quieres comprar escribe *quiero comprar*')
 
+
+  const flowInventario = addKeyword('Quiero comprar')
   .addAnswer([
+    "Escribe el *nombre* de la categoria de productos que te interesa comprar",
     "1. Pastelería vegana",
     "2. Panadería vegana"
   ], 
   { capture:true },
-  async(ctx, {flowDynamic}) => {
-    telefono = ctx.body;
-    categoria = STATUS[telefono] = { ...STATUS[telefono], categoria: ctx.body };
+  async(ctx, {flowDynamic, fallBack, state}) => {
+    telefono = ctx.from;
+    state.update({ categoria: ctx.body });
+
+    if(!ctx.body.includes('Pastelería vegana') && !ctx.body.includes('Panadería vegana')){
+      return fallBack();
+    }
+    const currentState = state.getMyState();
     await flowDynamic([
       {
-        body: `Perfecto espera unos segundos para traerte los productos disponibles de ${STATUS[telefono].categoria} 😁`,
+        body: `Espera unos segundos para traerte los productos disponibles de ${currentState.categoria} 😁`,
       },
     ]);
   }
   )
-
-  .addAnswer(
-    ["Según la categoria tengo los siguientes productos:"],
+  .addAction(
     { delay: 1000 },
     async (ctx, { flowDynamic }) => {
       telefono = ctx.from;
@@ -98,28 +171,28 @@ const flowPrincipal = addKeyword("Hola")
 
       await consultarInventario(categoria);
  
-      const mapeoDeLista = consultados.map((item)=> item.producto + ' x' + item.stock).join('\n')
+      const mapeoDeLista = consultados.map(item => ({body: [ `*${item.producto}*`, `x: ${item.stock}`].join('\n')}))
       await flowDynamic(
         mapeoDeLista
       );
     }
   )
-
   .addAnswer(
-    "Te gustaria pedir alguno de estos productos? dime cuales", 
-    {capture : true},
-    async(ctx, {flowDynamic, fallBack}) => {
+    "Te gustaria pedir alguno de estos productos? dime cuales y cuantos",
+    { delay:1000, capture : true },
+    async(ctx, {fallBack, state}) => {
+      state.update({ pedido: ctx.body });
       const response = await ChatGPTInstance.handleMsgChatGPT(ctx.body);
       const message = response.text;
       if(ctx.body.toUpperCase() !== 'si confirmo'){
         await fallBack(message);
       }
-    }, [flowConfirmar]
+    }, [flowConfirmarPagar]
   )
 
 const main = async () => {
   const adapterDB = new MockAdapter();
-  const adapterFlow = createFlow([flowPrincipal]);
+  const adapterFlow = createFlow([flowPrincipal, flowInventario]);
   const adapterProvider = createProvider(BaileysProvider);
 
   createBot({
@@ -132,169 +205,3 @@ const main = async () => {
 };
 
 main();
-
-/*const API = 'https://fakestoreapi.com/products';
-
-const flowLista = addKeyword(['lista']) 
-    .addAnswer('Genial, te envío la lista de productos en unos segundos', null, 
-    async (ctx, {flowDynamic}) => {
-        let contador = 1;
-        const respuesta = await axios(API)
-
-        for (const item of respuesta.data) {
-            if(contador>4) break;
-            contador++
-            flowDynamic({body:item.title, media:item.image})
-        }
-    }
-    )
-    
-const flowHumano = addKeyword(['humano']) 
-    .addAnswer('En breve te contactaremos...')
-
-const flowPrincipal = addKeyword(['hola', 'ole', 'alo', 'ola', 'buenas'])
-    .addAnswer(['*Bienvenido a Tierra Libre*', 'Espero que estes teniendo un buen dia'])
-    .addAnswer(
-        [
-            'Escribe *lista* para enviarte la lista de productos',
-            'Escribe *humano* para contactar contigo'
-        ],
-         null, 
-         null, 
-         [flowLista, flowHumano])
-
-
-
-
-const flowDespedida = addKeyword(['chao', 'nos vemos'])
-    .addAnswer(['chao nos vemoooo'])
-
-*/
-/**
- * Esta es la funcion importante es la que realmente inicia
- * el chatbot.
- */
-
-
-  /*.addAnswer(
-    "Dime tu nombre",
-    { capture: true },
-    async (ctx, { flowDynamic }) => {
-      telefono = ctx.from;
-      nombre = STATUS[telefono] = { ...STATUS[telefono], nombre: ctx.body };
-      flowDynamic();
-    }
-  )
-
-  .addAnswer(
-    "Dime tus apellidos",
-    { capture: true },
-    async (ctx, { flowDynamic }) => {
-      telefono = ctx.from;
-      apellidos = STATUS[telefono] = {
-        ...STATUS[telefono],
-        apellidos: ctx.body,
-      }; //Variable del STATUS
-      console.log(STATUS[telefono].sexo);
-      flowDynamic();
-    }
-  )
-  .addAnswer(
-    "¿Qué edad tienes?",
-    { capture: true },
-    async (ctx, { flowDynamic }) => {
-      telefono = ctx.from;
-      edad = STATUS[telefono] = { ...STATUS[telefono], edad: ctx.body }; //Variable del STATUS
-
-      /////////////////////       ESTA FUNCION AÑADE UNA FILA A SHEETS    /////////////////////////
-      ingresarDatos();
-      async function ingresarDatos() {
-        console.log(STATUS[telefono].sexo);
-        let rows = [
-          {
-            // Ejemplo: // CABECERA DE SHEET : VARIABLE        //                             ➡️   Paso 3 - Aquí añades las variables creadas
-
-            Nombre: STATUS[telefono].nombre,
-            Apellidos: STATUS[telefono].apellidos,
-            Telefono: telefono,
-            Edad: STATUS[telefono].edad,
-          },
-        ];
-        console.log("rows", rows);
-
-        await doc.loadInfo();
-        let sheet = doc.sheetsByIndex[0];
-        for (let index = 0; index < rows.length; index++) {
-          const row = rows[index];
-          await sheet.addRow(row);
-        }
-      }
-
-      await flowDynamic([
-        {
-          body: `Perfecto ${STATUS[telefono].nombre}, espero que te haya parecido sencillo el formulario 😁`,
-        },
-      ]);
-      await flowDynamic([
-        {
-          body: `Puedes consultar tus datos escribiendo *Consultar mis datos* o haciendo clic aquí:`,
-          buttons: [{ body: "🔍 Consultar mis datos 🔍" }],
-        },
-      ]);
-    }
-  );
-
-//////////////////////////// FLUJO PARA CONSULTAR DATOS /////////////////////////////////////////////////////////
-
-async function consultarDatos(telefono) {
-  await doc.loadInfo();
-  let sheet = doc.sheetsByTitle["Hoja 1"]; // AQUÍ DEBES PONER EL NOMBRE DE TU HOJA
-
-  consultados = [];
-
-  const rows = await sheet.getRows();
-  //console.log("YAPO", rows)
-  for (let index = 0; index < rows.length; index++) {
-    const row = rows[index];
-    if (row.get("Telefono") === telefono) {
-      // AQUÍ LE PEDIMOS A LA FUNCION QUE CONSULTE LOS DATOS QUE QUEREMOS CONSULTAR EJEMPLO:
-      consultados["Nombre"] = row.get("Nombre");
-      consultados["Apellidos"] = row.get("Apellidos"); // consultados['EL NOMBRE QUE QUIERAS'] = row.NOMBRE DE LA COLUMNA DE SHEET
-      consultados["Telefono"] = row.get("Telefono");
-      consultados["Edad"] = row.get("Edad");
-    }
-  }
-
-  console.log("consultados", consultados);
-  return consultados;
-}
-
-const flowConsultar = addKeyword(
-  "Consultar mis datos",
-  "🔍 Consultar mis datos 🔍"
-)
-  .addAnswer([
-    "Dame unos segundo, estoy buscando tus datos dentro del sistema... 🔍",
-  ])
-  .addAnswer(
-    ["Según el teléfono del cuál me estas escribiendo, tengo estos datos:"],
-    { delay: 3000 },
-    async (ctx, { flowDynamic }) => {
-      telefono = ctx.from;
-
-      await consultarDatos(telefono);
-
-      // AQUI DECLARAMOS LAS VARIABLES CON LOS DATOS QUE NOS TRAEMOS DE LA FUNCION         VVVVVVVVV
-      const Nombre = consultados["Nombre"];
-      const Apellidos = consultados["Apellidos"];
-      const Telefono = consultados["Telefono"];
-      const Edad = consultados["Edad"];
-
-      await flowDynamic(
-        `- *Nombre*: ${Nombre}\n- *Apellidos*: ${Apellidos}\n- *Telefono*: ${Telefono}\n- *Edad*: ${Edad}`
-      );
-    }
-  );
-
-/////////////////////       ESTA FUNCION CONSULTA LOS DATOS DE UNA FILA !SEGÚN EL TELÉFONO!    /////////////////////////
-*/
