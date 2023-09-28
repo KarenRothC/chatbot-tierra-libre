@@ -18,7 +18,7 @@ const QRPortalWeb = require("@bot-whatsapp/portal");
 const BaileysProvider = require("@bot-whatsapp/provider/baileys");
 const MockAdapter = require("@bot-whatsapp/database/mock");
 const ChatGPTClass = require("./chatgpt.class");
-const { PROMPT } = require("./prompt")
+const { PROMPTRESUMEN } = require("./prompt")
 
 const ChatGPTInstance = new ChatGPTClass();
 
@@ -117,7 +117,7 @@ const flowGenerarPedido = addKeyword('Listo')
 }
  )
 
-const flowConfirmarPagar = addKeyword('si confirmo') 
+const flowConfirmarPagar = addKeyword('Si') 
   .addAnswer('Porfavor escribe tu nombre y apellido',
   {capture: true},
   async(ctx, { state }) => {
@@ -130,9 +130,7 @@ const flowConfirmarPagar = addKeyword('si confirmo')
 
 
 const flowPrincipal = addKeyword(EVENTS.WELCOME)
-  .addAnswer("Hola! Bienvenido a Tierra Libre", null, async() => {
-    await ChatGPTInstance.handleMsgChatGPT(PROMPT)
-  })
+  .addAnswer("Bienvenido a Tierra Libre!")
   .addAnswer(
     "Te envio el catalogo de productos",
   {
@@ -150,11 +148,12 @@ const flowPrincipal = addKeyword(EVENTS.WELCOME)
   { capture:true },
   async(ctx, {flowDynamic, fallBack, state}) => {
     telefono = ctx.from;
-    state.update({ categoria: ctx.body });
+    
 
     if(!ctx.body.includes('Pastelería vegana') && !ctx.body.includes('Panadería vegana')){
       return fallBack();
     }
+    state.update({ categoria: ctx.body });
     const currentState = state.getMyState();
     await flowDynamic([
       {
@@ -178,17 +177,34 @@ const flowPrincipal = addKeyword(EVENTS.WELCOME)
     }
   )
   .addAnswer(
-    "Te gustaria pedir alguno de estos productos? dime cuales y cuantos",
+    "Te gustaria pedir alguno de estos productos? Dime cuáles y cuántos",
     { delay:1000, capture : true },
-    async(ctx, {fallBack, state}) => {
-      state.update({ pedido: ctx.body });
-      const response = await ChatGPTInstance.handleMsgChatGPT(ctx.body);
+    async(ctx, {flowDynamic, state}) => {
+      console.log(ctx.body)
+      console.log("Consultados 2",consultados.map(item => `{ producto: ${item.producto}, stock: ${item.producto} }`).join(','))
+      const listado_productos = '[' + consultados.map(item => `{ producto: ${item.producto}, stock: ${item.producto} }`).join(',') + ']'
+      const PROMPTRESUMEN2 = [
+        'Eres el encargado de interpretar los {productos} que quiere comprar el usuario y entregarle un resumen de su elección en el siguiente formato:',
+        '"cantidad: producto"',
+        "[SITUACION] usuario te dice" + ctx.body,
+        "productos =" + listado_productos,
+        "Tu respondes: solamente el resumen, sin otra palabra"
+    ].join(' ')
+    console.log(PROMPTRESUMEN2)
+    const response = await ChatGPTInstance.handleMsgChatGPT(PROMPTRESUMEN2)
       const message = response.text;
-      if(ctx.body.toUpperCase() !== 'si confirmo'){
-        await fallBack(message);
-      }
-    }, [flowConfirmarPagar]
+      flowDynamic(message)
+      state.update({ pedido: message })
+    }
   )
+  .addAnswer(
+    "Confirmas? *Si* o *No*",
+    { delay: 1000, capture : true }, null, [flowConfirmarPagar]
+  )
+
+
+
+
 
 const main = async () => {
   const adapterDB = new MockAdapter();
