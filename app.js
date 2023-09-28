@@ -176,13 +176,45 @@ const flowPrincipal = addKeyword(EVENTS.WELCOME)
       );
     }
   )
+  .addAnswer("Te gustaria pedir alguno de estos productos? Dime cuáles y cuántos",
+  { delay: 1000, capture: true },
+  async(ctx ,{ gotoFlow, }) => {
+    const listado_productos = '[' + consultados.map(item => `{ producto: ${item.producto}, stock: ${item.stock} }`).join(',') + ']'
+    const PROMPT_INVENTARIO = [
+      "Por favor, verifica si un producto similar o igual al que el cliente ha solicitado existe en el inventario.",
+      "\nEl inventario se compone de los siguientes productos = " + listado_productos,
+      "\nEl cliente ha solicitado = " + ctx.body,
+      "\nResponde solo con:'EXISTE' o 'NO_EXISTE'"
+    ].join(' ')
+    console.log(PROMPT_INVENTARIO)
+    const response = await ChatGPTInstance.handleMsgChatGPT(PROMPT_INVENTARIO)
+      const message = response.text;
+      const getCheck = message
+      .trim()
+      .replace("\n", "")
+      .replace(".", "")
+      .replace(" ", "");
+      console.log("a ver el mensaje", message)
+      console.log("getcheck: ",getCheck)
+    if (getCheck.includes("NO_EXISTE")) {
+      return gotoFlow(flowEmpty);
+    } else {
+      return gotoFlow(flowResumen);
+    }
+  }
+  )
+
+  const flowEmpty = addKeyword(EVENTS.ACTION)
+  .addAnswer("El producto no existe o no está en stock, porfavor escribe *Quiero comprar* nuevamente", null, async (_, { gotoFlow }) => {
+    return gotoFlow(flowInventario);
+  });
+
+  const flowResumen = addKeyword("resumen")
   .addAnswer(
-    "Te gustaria pedir alguno de estos productos? Dime cuáles y cuántos",
-    { delay:1000, capture : true },
+    "Te dejo un resumen de tu pedido",
+    { delay:1000 },
     async(ctx, {flowDynamic, state}) => {
-      console.log(ctx.body)
-      console.log("Consultados 2",consultados.map(item => `{ producto: ${item.producto}, stock: ${item.producto} }`).join(','))
-      const listado_productos = '[' + consultados.map(item => `{ producto: ${item.producto}, stock: ${item.producto} }`).join(',') + ']'
+      const listado_productos = '[' + consultados.map(item => `{ producto: ${item.producto}, stock: ${item.stock} }`).join(',') + ']'
       const PROMPTRESUMEN2 = [
         'Eres el encargado de interpretar los {productos} que quiere comprar el usuario y entregarle un resumen de su elección en el siguiente formato:',
         '"cantidad: producto"',
@@ -208,7 +240,7 @@ const flowPrincipal = addKeyword(EVENTS.WELCOME)
 
 const main = async () => {
   const adapterDB = new MockAdapter();
-  const adapterFlow = createFlow([flowPrincipal, flowInventario]);
+  const adapterFlow = createFlow([flowPrincipal, flowInventario, flowResumen]);
   const adapterProvider = createProvider(BaileysProvider);
 
   createBot({

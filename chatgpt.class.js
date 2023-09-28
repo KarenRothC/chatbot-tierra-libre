@@ -1,10 +1,10 @@
 require('dotenv').config()
-const { CoreClass } = require('@bot-whatsapp/bot');
+const { } = require('@bot-whatsapp/bot');
 
 
 class ChatGPTClass{
   queue = []; 
-  optionsGPT = { model: "gpt-3.5-turbo-0301" };
+  optionsGPT = { model: "gpt-3.5-turbo" };
   openai = undefined;
 
   constructor() {
