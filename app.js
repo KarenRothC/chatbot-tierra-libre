@@ -149,7 +149,7 @@ const flowPrincipal = addKeyword(EVENTS.WELCOME)
   .addAnswer("Bienvenido a Tierra Libre!")
   .addAnswer("Te envio el catalogo de productos", {
     media:
-    "/Users/karenroth/Desktop/chatbot-tierra-libre/catalogo-test.png",
+    "./catalogo-test.png",
   })
   .addAnswer("Si quieres comprar escribe *quiero comprar*");
 
