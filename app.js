@@ -37,13 +37,12 @@ const doc = new GoogleSpreadsheet(RESPONSES_SHEET_ID, serviceAccountAuth);
                       */
 
 /**
- * Guardar pedido
+ * Guardar pedido en la sheet Pedidos
  * @param {*} data
  */
 async function saveOrder(data = {}) {
-  //console.log(data);
   await doc.loadInfo();
-  const sheet = doc.sheetsByTitle["Hoja 1"]; // the first sheet
+  const sheet = doc.sheetsByTitle["Pedidos"]; 
   const order = await sheet.addRow({
     fecha: data.fecha,
     telefono: data.telefono,
@@ -65,19 +64,9 @@ function formatResumeBot(resumeBot) {
       cantidad: separadoPorPuntos[0],
     });
   }
-  //console.log(resumeFormated);
   return resumeFormated;
 }
 
-async function updateInventory(categoria, resumeBot) {
-  const resumeFormated = formatResumeBot(resumeBot);
-  const consultaInventario = consultarInventario(categoria);
-  for (let i = 0; i < resumeFormated.length; i++) {
-    console.log(consultaInventario.indexOf(resumeFormated[i].producto));
-  }
-}
-
-// funcion de prueba
 function calcularPrecioTotal(productosSeleccionados, consultaInventario) {
   let precioTotal = 0;
 
@@ -101,31 +90,41 @@ function calcularPrecioTotal(productosSeleccionados, consultaInventario) {
   return precioTotal;
 }
 
-//FLUJO DE PRUEBA PARA CALCULAR EL PRECIO
-const prueba = addKeyword("prueba").addAnswer(
-  "a ver el precio",
+// funcion que actualizar inventario
+async function updateInventory(compraCliente) {
+  await doc.loadInfo();
+  let sheet = doc.sheetsByTitle["Inventario"];
+  const rows = await sheet.getRows();
+
+  for (const compra of compraCliente) {
+    const productoDeseado = compra.producto
+    const cantidadDeseada = parseInt(compra.cantidad)
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (row.get("Producto") === productoDeseado && row.get("Stock") >= cantidadDeseada) {
+        row.set("Stock", row.get('Stock') - cantidadDeseada)
+        row.save()
+      }
+    }
+  }
+  return true
+}
+//FLUJO DE PRUEBA PARA ACTUALIZAR INVENTARIO
+const prueba = addKeyword("prueba")
+.addAnswer(
+  "actualizando inventarioooo",
   null,
-  async ({ flowDynamic }) => {
-    const consultaInventario = await consultarInventario("Pastelería vegana");
-    const productosSeleccionados = [
-      { producto: "Muffin Zanahoria Naranja", cantidad: "10" },
-      { producto: "Muffin Banana Split Chips de Chocolate", cantidad: "10" },
-    ];
-    const precioTotal = calcularPrecioTotal(
-      productosSeleccionados,
-      consultaInventario
-    );
-    await flowDynamic([
-      {
-        body: `El precio total es: ${precioTotal} pesos`,
-      },
-    ]);
+  async (_,{state}) => {
+    const currentState = state.getMyState()
+    const compraCliente = formatResumeBot(currentState.pedido);
+    const updated = await updateInventory(compraCliente);
+    console.log(updated)
   }
 );
 
 async function consultarInventario(categoria) {
   await doc.loadInfo();
-  let sheet = doc.sheetsByTitle["Hoja 2"]; // AQUÍ DEBES PONER EL NOMBRE DE TU HOJA
+  let sheet = doc.sheetsByTitle["Inventario"]; // AQUÍ DEBES PONER EL NOMBRE DE TU HOJA
 
   consultaInventario = [];
 
@@ -143,7 +142,6 @@ async function consultarInventario(categoria) {
       consultaInventario.push(objeto);
     }
   }
-  //console.log("consultaInventario", consultaInventario);
   return consultaInventario;
 }
 
@@ -154,6 +152,7 @@ const flowPrincipal = addKeyword(EVENTS.WELCOME)
       "C:/Users/Usuario/Documents/Chatbot/base-baileys-memory/catalogo-test.png",
   })
   .addAnswer("Si quieres comprar escribe *quiero comprar*");
+
 
 const flowInventario = addKeyword("Quiero comprar")
   .addAnswer(
@@ -219,8 +218,6 @@ const flowInventario = addKeyword("Quiero comprar")
         .replace("\n", "")
         .replace(".", "")
         .replace(" ", "");
-      //console.log("a ver el mensaje", message);
-      //console.log("getcheck: ", getCheck);
       if (getCheck.includes("NO_EXISTE")) {
         return gotoFlow(flowEmpty);
       } else {
@@ -257,15 +254,16 @@ const flowConfirmarPagar = addKeyword("Si")
     });
     await flowDynamic( `Gracias ${currentState.nombre} por realizar tu pedido en Tierra Libre, puedes pasar a retirarlo mañana de 10:00 a 18:00 hrs `);
   })
-  .addAnswer("Actualizando inventario", null, async (_, { state }) => {
-    const currentState = state.getMyState();
-    //updateInventory(currentState.categoria, currentState.pedido);
-    /*
-    console.log(
-      "actualizar inventario ",
-      updateInventory(currentState.categoria, currentState.pedido)
-    );*/
-  });
+.addAnswer(
+  "Inventario actualizado",
+  null,
+  async (_,{state}) => {
+    const currentState = state.getMyState()
+    const compraCliente = formatResumeBot(currentState.pedido);
+    const updated = await updateInventory(compraCliente);
+    console.log(updated)
+  }
+);
 
 const flowResumen = addKeyword("resumen")
   .addAnswer(
@@ -280,27 +278,28 @@ const flowResumen = addKeyword("resumen")
         "]";
       const PROMPTRESUMEN2 = [
         "Eres el encargado de interpretar los {productos} que quiere comprar el usuario y entregarle un resumen de su elección en el siguiente formato:",
-        '"cantidad: producto"',
-        "[SITUACION] usuario te dice" + ctx.body,
-        "productos =" + listado_productos,
-        "Tu respondes: solamente el resumen, sin otra palabra",
+        '\n"cantidad: producto, cantidad: producto, cantidad: producto, cantidad: producto, cantidad: producto" ',
+        "\n no olvides poner los dos puntos ':' entre la cantidad y el producto",
+        "\n[SITUACION] usuario te dice = " + ctx.body,
+        "\nproductos = " + listado_productos,
+        "\nTu respondes: solamente el resumen, sin otra palabra",
       ].join(" ");
+
+      console.log(PROMPTRESUMEN2)
 
       const response = await ChatGPTInstance.handleMsgChatGPT(PROMPTRESUMEN2);
       const message = response.text;
-      console.log("message BOT", message);
       await state.update({ pedido: message });
-      console.log("poto", state.getMyState());
       await flowDynamic(message);
     }
   )
   .addAction(async (_, { flowDynamic, state }) => {
     const currentState = state.getMyState();
-    console.log("Aver el current state despues de su definicion", currentState);
     const consultaInventario = await consultarInventario(
       currentState.categoria
     );
     const productosSeleccionados = formatResumeBot(currentState.pedido);
+    console.log("productosSeleccionados",productosSeleccionados)
     const precioTotal = calcularPrecioTotal(
       productosSeleccionados,
       consultaInventario
@@ -311,9 +310,19 @@ const flowResumen = addKeyword("resumen")
         body: `El precio total es: ${precioTotal} pesos`,
       },
     ]);
-    console.log('state despues de agregar valor', state.getMyState())
   })
-  .addAnswer("Confirmas? *Si* o *No*", { delay: 1000, capture: true }, null, flowConfirmarPagar);
+  .addAnswer(
+    "Confirmas? *Si* o *No*",
+    { delay: 1000, capture: true },
+    async(ctx, {gotoFlow, flowDynamic})=> {
+      if (ctx.body.toLowerCase() === 'si'){
+        await gotoFlow(flowConfirmarPagar)
+      } else {
+        await flowDynamic(`Perfecto`)
+        await gotoFlow(flowInventario)
+      }
+    }
+  );
 
 const main = async () => {
   const adapterDB = new MockAdapter();
@@ -321,6 +330,7 @@ const main = async () => {
     flowPrincipal,
     flowInventario,
     flowResumen,
+    prueba,
   ]);
   const adapterProvider = createProvider(BaileysProvider);
 
