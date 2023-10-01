@@ -1,7 +1,7 @@
+require('dotenv').config()
 const { GoogleSpreadsheet } = require("google-spreadsheet");
 const fs = require("fs");
 const RESPONSES_SHEET_ID = "1K-BDGuGn5ndCkCx75hwbtAb4tINTmp8R4JefggcJfTs"; //Aquí pondras el ID de tu hoja de Sheets
-const CREDENTIALS = JSON.parse(fs.readFileSync("./credenciales.json"));
 const { JWT } = require("google-auth-library");
 const { getDay } = require("date-fns");
 
@@ -23,8 +23,8 @@ const { PROMPTRESUMEN } = require("./prompt");
 const ChatGPTInstance = new ChatGPTClass();
 
 const serviceAccountAuth = new JWT({
-  email: CREDENTIALS.client_email,
-  key: CREDENTIALS.private_key,
+  email: process.env.CLIENT_EMAIL,
+  key: process.env.PRIVATE_KEY,
   scopes: ["https://www.googleapis.com/auth/spreadsheets"],
 });
 
@@ -149,7 +149,7 @@ const flowPrincipal = addKeyword(EVENTS.WELCOME)
   .addAnswer("Bienvenido a Tierra Libre!")
   .addAnswer("Te envio el catalogo de productos", {
     media:
-      "C:/Users/Usuario/Documents/Chatbot/base-baileys-memory/catalogo-test.png",
+    "/Users/karenroth/Desktop/chatbot-tierra-libre/catalogo-test.png",
   })
   .addAnswer("Si quieres comprar escribe *quiero comprar*");
 

@@ -4,4 +4,4 @@ google-key.json
 credenciales.json
 *_sessions/
 *.log
-*.png
+bot.qr.png
