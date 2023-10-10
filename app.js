@@ -180,7 +180,7 @@ const flowInventario = addKeyword("Quiero comprar")
       ]);
     }
   )
-  .addAction({ delay: 1000 }, async (ctx, { flowDynamic }) => {
+  .addAction(async (ctx, { flowDynamic }) => {
     telefono = ctx.from;
     categoria = ctx.body;
 
@@ -234,16 +234,17 @@ const flowEmpty = addKeyword(EVENTS.ACTION).addAnswer(
   }
 );
 
-const flowConfirmarPagar = addKeyword("Si")
+const flowConfirmarPagar = addKeyword(EVENTS.ACTION)
   .addAnswer(
     "Porfavor escribe tu nombre y apellido",
     { capture: true },
-    async (ctx, { state }) => {
+    async (ctx, { flowDynamic, state }) => {
       telefono = ctx.from;
-      state.update({ nombre: ctx.body });
+      await state.update({ nombre: ctx.body });
+      flowDynamic('Gracias por escribir tu nombre')
     }
   )
-  .addAction({ delay: 1000 }, async (ctx, { flowDynamic, state }) => {
+  .addAction(async (ctx, { flowDynamic, state }) => {
     const currentState = state.getMyState();
     await saveOrder({
       fecha: new Date().toDateString(),
@@ -330,7 +331,8 @@ const main = async () => {
     flowPrincipal,
     flowInventario,
     flowResumen,
-    prueba,
+    flowEmpty,
+    flowConfirmarPagar
   ]);
   const adapterProvider = createProvider(BaileysProvider);
 
