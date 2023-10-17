@@ -1,4 +1,4 @@
-require('dotenv').config()
+require("dotenv").config();
 const { GoogleSpreadsheet } = require("google-spreadsheet");
 const fs = require("fs");
 const RESPONSES_SHEET_ID = "1K-BDGuGn5ndCkCx75hwbtAb4tINTmp8R4JefggcJfTs"; //Aquí pondras el ID de tu hoja de Sheets
@@ -14,11 +14,11 @@ const {
   EVENTS,
 } = require("@bot-whatsapp/bot");
 
-const QRPortalWeb = require("@bot-whatsapp/portal");
 const BaileysProvider = require("@bot-whatsapp/provider/baileys");
 const MockAdapter = require("@bot-whatsapp/database/mock");
 const ChatGPTClass = require("./chatgpt.class");
-const { PROMPTRESUMEN } = require("./prompt");
+const ServerHttp = require("./http");
+const {sendMessageChatWoot} = require("./services/chatwoot");
 
 const ChatGPTInstance = new ChatGPTClass();
 
@@ -42,7 +42,7 @@ const doc = new GoogleSpreadsheet(RESPONSES_SHEET_ID, serviceAccountAuth);
  */
 async function saveOrder(data = {}) {
   await doc.loadInfo();
-  const sheet = doc.sheetsByTitle["Pedidos"]; 
+  const sheet = doc.sheetsByTitle["Pedidos"];
   const order = await sheet.addRow({
     fecha: data.fecha,
     telefono: data.telefono,
@@ -97,28 +97,32 @@ async function updateInventory(compraCliente) {
   const rows = await sheet.getRows();
 
   for (const compra of compraCliente) {
-    const productoDeseado = compra.producto
-    const cantidadDeseada = parseInt(compra.cantidad)
+    const productoDeseado = compra.producto;
+    const cantidadDeseada = parseInt(compra.cantidad);
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      if (row.get("Producto") === productoDeseado && row.get("Stock") >= cantidadDeseada) {
-        row.set("Stock", row.get('Stock') - cantidadDeseada)
-        row.save()
+      if (
+        row.get("Producto") === productoDeseado &&
+        row.get("Stock") >= cantidadDeseada
+      ) {
+        row.set("Stock", row.get("Stock") - cantidadDeseada);
+        row.save();
       }
     }
   }
-  return true
+  return true;
 }
 //FLUJO DE PRUEBA PARA ACTUALIZAR INVENTARIO
 const prueba = addKeyword("prueba")
-.addAnswer(
-  "actualizando inventarioooo",
-  null,
-  async (_,{state}) => {
-    const currentState = state.getMyState()
+.addAction(
+  async (_, { state, flowDynamic }) => {
+    const currentState = state.getMyState();
     const compraCliente = formatResumeBot(currentState.pedido);
     const updated = await updateInventory(compraCliente);
-    console.log(updated)
+    console.log(updated);
+    const MESSAGE = "Actualizando inventarioooo"
+    await sendMessageChatWoot(MESSAGE, "incoming")
+    
   }
 );
 
@@ -146,13 +150,15 @@ async function consultarInventario(categoria) {
 }
 
 const flowPrincipal = addKeyword(EVENTS.WELCOME)
-  .addAnswer("Bienvenido a Tierra Libre!")
-  .addAnswer("Te envio el catalogo de productos", {
-    media:
-    "./catalogo-test.png",
+  .addAction(async (_, {flowDynamic}) => {
+    const MESSAGE = "Bienvenido a *Tierra Libre*!";
+    await sendMessageChatWoot(MESSAGE, 'incoming');
+    await flowDynamic(MESSAGE);
   })
-  .addAnswer("Si quieres comprar escribe *quiero comprar*");
-
+  .addAnswer("Te envio el catalogo de productos", {
+    media: "./catalogo-test.png",
+  })
+  .addAnswer("Si quieres comprar escribe *Quiero comprar*");
 
 const flowInventario = addKeyword("Quiero comprar")
   .addAnswer(
@@ -241,7 +247,7 @@ const flowConfirmarPagar = addKeyword(EVENTS.ACTION)
     async (ctx, { flowDynamic, state }) => {
       telefono = ctx.from;
       await state.update({ nombre: ctx.body });
-      flowDynamic('Gracias por escribir tu nombre')
+      flowDynamic("Gracias por escribir tu nombre");
     }
   )
   .addAction(async (ctx, { flowDynamic, state }) => {
@@ -253,18 +259,16 @@ const flowConfirmarPagar = addKeyword(EVENTS.ACTION)
       valor: currentState.valor,
       pedido: currentState.pedido,
     });
-    await flowDynamic( `Gracias ${currentState.nombre} por realizar tu pedido en Tierra Libre, puedes pasar a retirarlo mañana de 10:00 a 18:00 hrs `);
+    await flowDynamic(
+      `Gracias ${currentState.nombre} por realizar tu pedido en Tierra Libre, puedes pasar a retirarlo mañana de 10:00 a 18:00 hrs `
+    );
   })
-.addAnswer(
-  "Inventario actualizado",
-  null,
-  async (_,{state}) => {
-    const currentState = state.getMyState()
+  .addAnswer("Inventario actualizado", null, async (_, { state }) => {
+    const currentState = state.getMyState();
     const compraCliente = formatResumeBot(currentState.pedido);
     const updated = await updateInventory(compraCliente);
-    console.log(updated)
-  }
-);
+    console.log(updated);
+  });
 
 const flowResumen = addKeyword("resumen")
   .addAnswer(
@@ -286,7 +290,7 @@ const flowResumen = addKeyword("resumen")
         "\nTu respondes: solamente el resumen, sin otra palabra",
       ].join(" ");
 
-      console.log(PROMPTRESUMEN2)
+      console.log(PROMPTRESUMEN2);
 
       const response = await ChatGPTInstance.handleMsgChatGPT(PROMPTRESUMEN2);
       const message = response.text;
@@ -300,7 +304,7 @@ const flowResumen = addKeyword("resumen")
       currentState.categoria
     );
     const productosSeleccionados = formatResumeBot(currentState.pedido);
-    console.log("productosSeleccionados",productosSeleccionados)
+    console.log("productosSeleccionados", productosSeleccionados);
     const precioTotal = calcularPrecioTotal(
       productosSeleccionados,
       consultaInventario
@@ -315,12 +319,12 @@ const flowResumen = addKeyword("resumen")
   .addAnswer(
     "Confirmas? *Si* o *No*",
     { delay: 1000, capture: true },
-    async(ctx, {gotoFlow, flowDynamic})=> {
-      if (ctx.body.toLowerCase() === 'si'){
-        await gotoFlow(flowConfirmarPagar)
+    async (ctx, { gotoFlow, flowDynamic }) => {
+      if (ctx.body.toLowerCase() === "si") {
+        await gotoFlow(flowConfirmarPagar);
       } else {
-        await flowDynamic(`Perfecto`)
-        await gotoFlow(flowInventario)
+        await flowDynamic(`Perfecto`);
+        await gotoFlow(flowInventario);
       }
     }
   );
@@ -332,17 +336,21 @@ const main = async () => {
     flowInventario,
     flowResumen,
     flowEmpty,
-    flowConfirmarPagar
+    flowConfirmarPagar,
+    prueba
   ]);
+
   const adapterProvider = createProvider(BaileysProvider);
 
-  createBot({
+  await createBot({
     flow: adapterFlow,
     provider: adapterProvider,
     database: adapterDB,
   });
 
-  QRPortalWeb();
+  const server = new ServerHttp(adapterProvider);
+
+  server.start();
 };
 
 main();
