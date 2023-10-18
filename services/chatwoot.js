@@ -4,7 +4,7 @@ require("dotenv").config();
 const sendMessageChatWoot = async (msg = "", message_type = "") => {
     var myHeaders = new Headers();
     myHeaders.append("api_access_token", process.env.CHATWOOT_KEY);
-    myHeaders.append("Content-type", "aplication/json")
+    myHeaders.append("Content-type", "application/json")
 
     var raw = JSON.stringify({
         content: msg,
