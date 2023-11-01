@@ -7,7 +7,6 @@ const router = express.Router();
 // Controller
 const chatWootHook = async (req, res) => {
   const providerWs = req.providerWs;
-  console.log("providerWs", providerWs);
   const body = req.body;
   if (body?.private) {
     res.send(null);

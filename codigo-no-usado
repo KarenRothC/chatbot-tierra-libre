@@ -1,4 +1,28 @@
 
+/*.addAction(async (_, { flowDynamic }) => {
+  return flowDynamic('¡Hola! ¿En qué puedo ayudarte?')
+})
+.addAction({ capture: true }, async (ctx, { flowDynamic }) => {
+  const mensaje = ctx.body
+  console.log("YAPO", mensaje)
+  await sendMessageChatWoot(mensaje, "incoming");
+  await sendMessageChatWoot(`Has dicho: ${mensaje}`,"outgoing")
+  await flowDynamic(`Has dicho: ${mensaje}`)
+})
+.addAnswer(
+  "Porfavor escribe tu nombre y apellido",
+  { capture: true },
+  async (ctx, { flowDynamic, state }) => {
+    telefono = ctx.from;
+    await state.update({ nombre: ctx.body });
+    await sendMessageChatWoot("Porfavor escribe tu nombre y apellido", "incoming");
+    await sendMessageChatWoot(`${ctx.body}`, "outgoing");
+    await sendMessageChatWoot("Gracias por escribir tu nombre", "incoming");
+    await flowDynamic("Gracias por escribir tu nombre");
+  }
+)*/
+
+
 /*const API = 'https://fakestoreapi.com/products';
 
 const flowLista = addKeyword(['lista']) 

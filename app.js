@@ -1,7 +1,7 @@
 require("dotenv").config();
 const { GoogleSpreadsheet } = require("google-spreadsheet");
 const fs = require("fs");
-const RESPONSES_SHEET_ID = "1K-BDGuGn5ndCkCx75hwbtAb4tINTmp8R4JefggcJfTs"; //Aquí pondras el ID de tu hoja de Sheets
+const RESPONSES_SHEET_ID = "1K-BDGuGn5ndCkCx75hwbtAb4tINTmp8R4JefggcJfTs"; //ID de la hoja de Sheets
 const { JWT } = require("google-auth-library");
 const { getDay } = require("date-fns");
 
@@ -11,6 +11,7 @@ const {
   createFlow,
   addKeyword,
   addAnswer,
+  addAction,
   EVENTS,
 } = require("@bot-whatsapp/bot");
 
@@ -18,7 +19,8 @@ const BaileysProvider = require("@bot-whatsapp/provider/baileys");
 const MockAdapter = require("@bot-whatsapp/database/mock");
 const ChatGPTClass = require("./chatgpt.class");
 const ServerHttp = require("./http");
-const {sendMessageChatWoot} = require("./services/chatwoot");
+const { sendMessageChatWoot } = require("./services/chatwoot");
+const { sleep } = require("./utils/sleep");
 
 const ChatGPTInstance = new ChatGPTClass();
 
@@ -29,12 +31,6 @@ const serviceAccountAuth = new JWT({
 });
 
 const doc = new GoogleSpreadsheet(RESPONSES_SHEET_ID, serviceAccountAuth);
-
-/*                       Para añadir o eliminar alguna pregunta sigue los siguientes pasos:
-1) ➡️ Crea el addAnswer
-2) ➡️ Crea la variable del STATUS
-3) ➡️ Añade el nombre de la columna de Sheets junto con su variable
-                      */
 
 /**
  * Guardar pedido en la sheet Pedidos
@@ -90,7 +86,7 @@ function calcularPrecioTotal(productosSeleccionados, consultaInventario) {
   return precioTotal;
 }
 
-// funcion que actualizar inventario
+// Funcion que actualiza inventario
 async function updateInventory(compraCliente) {
   await doc.loadInfo();
   let sheet = doc.sheetsByTitle["Inventario"];
@@ -112,23 +108,22 @@ async function updateInventory(compraCliente) {
   }
   return true;
 }
+
 //FLUJO DE PRUEBA PARA ACTUALIZAR INVENTARIO
-const prueba = addKeyword("prueba")
-.addAction(
+const prueba = addKeyword("prueba").addAction(
   async (_, { state, flowDynamic }) => {
     const currentState = state.getMyState();
     const compraCliente = formatResumeBot(currentState.pedido);
     const updated = await updateInventory(compraCliente);
     console.log(updated);
-    const MESSAGE = "Actualizando inventarioooo"
-    await sendMessageChatWoot(MESSAGE, "incoming")
-    
+    const MESSAGE = "Actualizando inventarioo";
+    await sendMessageChatWoot(MESSAGE, "incoming");
   }
 );
 
 async function consultarInventario(categoria) {
   await doc.loadInfo();
-  let sheet = doc.sheetsByTitle["Inventario"]; // AQUÍ DEBES PONER EL NOMBRE DE TU HOJA
+  let sheet = doc.sheetsByTitle["Inventario"];
 
   consultaInventario = [];
 
@@ -137,7 +132,7 @@ async function consultarInventario(categoria) {
     const row = rows[i];
 
     if (row.get("Categoria") === categoria && row.get("Stock") > 0) {
-      // AQUÍ LE PEDIMOS A LA FUNCION QUE CONSULTE LOS DATOS QUE QUEREMOS CONSULTAR EJEMPLO:
+      // AQUÍ LE PEDIMOS A LA FUNCION QUE CONSULTE LOS DATOS QUE QUEREMOS CONSULTAR
       const objeto = {
         producto: row.get("Producto"),
         stock: row.get("Stock"),
@@ -149,24 +144,45 @@ async function consultarInventario(categoria) {
   return consultaInventario;
 }
 
-const flowPrincipal = addKeyword(EVENTS.WELCOME)
-  .addAction(async (_, {flowDynamic}) => {
-    const MESSAGE = "Bienvenido a *Tierra Libre*!";
-    await sendMessageChatWoot(MESSAGE, 'incoming');
+const flowPrincipal = addKeyword(["Hola", "ole"])
+  .addAction(async (ctx, { flowDynamic }) => {
+    const CLIENT_MESSAGE = ctx.body;
+    const BOT_MESSAGE = "Bienvenido a *Tierra Libre*!";
+    await sendMessageChatWoot(CLIENT_MESSAGE, "incoming");
+    await sendMessageChatWoot(BOT_MESSAGE, "outgoing");
+    await sleep(2000);
+    await flowDynamic(BOT_MESSAGE);
+  })
+  .addAction(async (_, { flowDynamic }) => {
+    await sleep(2000);
+    const MESSAGE = "Te envio el catalogo de productos";
+    await sendMessageChatWoot(MESSAGE, "outgoing");
+    await flowDynamic([
+      {
+        body: `${MESSAGE}`,
+        media: `./catalogo-test.png`,
+      },
+    ]);
+  })
+  .addAction(async (_, { flowDynamic }) => {
+    sleep(2000);
+    const MESSAGE = "Si quieres comprar escribe *Quiero comprar*";
+    await sendMessageChatWoot(MESSAGE, "outgoing");
     await flowDynamic(MESSAGE);
-  })
-  .addAnswer("Te envio el catalogo de productos", {
-    media: "./catalogo-test.png",
-  })
-  .addAnswer("Si quieres comprar escribe *Quiero comprar*");
+  });
 
 const flowInventario = addKeyword("Quiero comprar")
-  .addAnswer(
-    [
-      "Escribe el *nombre* de la categoria de productos que te interesa comprar",
-      "1. Pastelería vegana",
-      "2. Panadería vegana",
-    ],
+  .addAction(async (ctx, { flowDynamic }) => {
+    const CLIENT_MESSAGE = ctx.body;
+    await sendMessageChatWoot(CLIENT_MESSAGE, "incoming");
+  })
+  .addAction(async (_, { flowDynamic }) => {
+    const BOT_MESSAGE =
+      "Escribe el *nombre* de la categoria de productos que te interesa comprar:\n 1. Pastelería vegana\n 2. Panadería vegana";
+    await sendMessageChatWoot(BOT_MESSAGE, "outgoing");
+    await flowDynamic(BOT_MESSAGE);
+  })
+  .addAction(
     { capture: true },
     async (ctx, { flowDynamic, fallBack, state }) => {
       telefono = ctx.from;
@@ -178,12 +194,11 @@ const flowInventario = addKeyword("Quiero comprar")
         return fallBack();
       }
       state.update({ categoria: ctx.body });
-      //const currentState = state.getMyState();
-      await flowDynamic([
-        {
-          body: `Espera unos segundos para traerte los productos disponibles de ${ctx.body} 😁`,
-        },
-      ]);
+      const CLIENT_MESSAGE = ctx.body;
+      const BOT_MESSAGE = `Espera unos segundos para traerte los productos disponibles de ${ctx.body} 😁`;
+      await sendMessageChatWoot(CLIENT_MESSAGE, "incoming");
+      await sendMessageChatWoot(BOT_MESSAGE, "outgoing");
+      await flowDynamic(BOT_MESSAGE);
     }
   )
   .addAction(async (ctx, { flowDynamic }) => {
@@ -195,12 +210,17 @@ const flowInventario = addKeyword("Quiero comprar")
     const mapeoDeLista = consultaInventario.map((item) => ({
       body: [`*${item.producto}*`, `x: ${item.stock}`].join("\n"),
     }));
+    await sendMessageChatWoot(mapeoDeLista, "outgoing");
     await flowDynamic(mapeoDeLista);
   })
   .addAnswer(
     "Te gustaria pedir alguno de estos productos? Dime cuáles y cuántos",
-    { delay: 1000, capture: true },
+    { delay: 2000, capture: true },
     async (ctx, { gotoFlow }) => {
+      await sendMessageChatWoot(
+        "Te gustaria pedir alguno de estos productos? Dime cuáles y cuántos",
+        "outgoing"
+      );
       const listado_productos =
         "[" +
         consultaInventario
@@ -337,7 +357,7 @@ const main = async () => {
     flowResumen,
     flowEmpty,
     flowConfirmarPagar,
-    prueba
+    prueba,
   ]);
 
   const adapterProvider = createProvider(BaileysProvider);
