@@ -4,7 +4,7 @@ Proyecto en construcción
 
 ## Descripción
 
-Chatbot de whatsapp de ventas para una panadería llamada Tierra Libre
+Chatbot de whatsapp de ventas para una panadería llamada Tierra Libre.
 Está conectado con chatwoot utilizado como CRM de conversaciones de whatsapp (administrador)
 
 
