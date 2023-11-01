@@ -1,7 +1,7 @@
-require('dotenv').config()
+require("dotenv").config();
 const { GoogleSpreadsheet } = require("google-spreadsheet");
 const fs = require("fs");
-const RESPONSES_SHEET_ID = "1K-BDGuGn5ndCkCx75hwbtAb4tINTmp8R4JefggcJfTs"; //Aquí pondras el ID de tu hoja de Sheets
+const RESPONSES_SHEET_ID = "1K-BDGuGn5ndCkCx75hwbtAb4tINTmp8R4JefggcJfTs"; //ID de la hoja de Sheets
 const { JWT } = require("google-auth-library");
 const { getDay } = require("date-fns");
 
@@ -11,14 +11,16 @@ const {
   createFlow,
   addKeyword,
   addAnswer,
+  addAction,
   EVENTS,
 } = require("@bot-whatsapp/bot");
 
-const QRPortalWeb = require("@bot-whatsapp/portal");
 const BaileysProvider = require("@bot-whatsapp/provider/baileys");
 const MockAdapter = require("@bot-whatsapp/database/mock");
 const ChatGPTClass = require("./chatgpt.class");
-const { PROMPTRESUMEN } = require("./prompt");
+const ServerHttp = require("./http");
+const { sendMessageChatWoot } = require("./services/chatwoot");
+const { sleep } = require("./utils/sleep");
 
 const ChatGPTInstance = new ChatGPTClass();
 
@@ -30,19 +32,13 @@ const serviceAccountAuth = new JWT({
 
 const doc = new GoogleSpreadsheet(RESPONSES_SHEET_ID, serviceAccountAuth);
 
-/*                       Para añadir o eliminar alguna pregunta sigue los siguientes pasos:
-1) ➡️ Crea el addAnswer
-2) ➡️ Crea la variable del STATUS
-3) ➡️ Añade el nombre de la columna de Sheets junto con su variable
-                      */
-
 /**
  * Guardar pedido en la sheet Pedidos
  * @param {*} data
  */
 async function saveOrder(data = {}) {
   await doc.loadInfo();
-  const sheet = doc.sheetsByTitle["Pedidos"]; 
+  const sheet = doc.sheetsByTitle["Pedidos"];
   const order = await sheet.addRow({
     fecha: data.fecha,
     telefono: data.telefono,
@@ -90,41 +86,44 @@ function calcularPrecioTotal(productosSeleccionados, consultaInventario) {
   return precioTotal;
 }
 
-// funcion que actualizar inventario
+// Funcion que actualiza inventario
 async function updateInventory(compraCliente) {
   await doc.loadInfo();
   let sheet = doc.sheetsByTitle["Inventario"];
   const rows = await sheet.getRows();
 
   for (const compra of compraCliente) {
-    const productoDeseado = compra.producto
-    const cantidadDeseada = parseInt(compra.cantidad)
+    const productoDeseado = compra.producto;
+    const cantidadDeseada = parseInt(compra.cantidad);
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      if (row.get("Producto") === productoDeseado && row.get("Stock") >= cantidadDeseada) {
-        row.set("Stock", row.get('Stock') - cantidadDeseada)
-        row.save()
+      if (
+        row.get("Producto") === productoDeseado &&
+        row.get("Stock") >= cantidadDeseada
+      ) {
+        row.set("Stock", row.get("Stock") - cantidadDeseada);
+        row.save();
       }
     }
   }
-  return true
+  return true;
 }
+
 //FLUJO DE PRUEBA PARA ACTUALIZAR INVENTARIO
-const prueba = addKeyword("prueba")
-.addAnswer(
-  "actualizando inventarioooo",
-  null,
-  async (_,{state}) => {
-    const currentState = state.getMyState()
+const prueba = addKeyword("prueba").addAction(
+  async (_, { state, flowDynamic }) => {
+    const currentState = state.getMyState();
     const compraCliente = formatResumeBot(currentState.pedido);
     const updated = await updateInventory(compraCliente);
-    console.log(updated)
+    console.log(updated);
+    const MESSAGE = "Actualizando inventarioo";
+    await sendMessageChatWoot(MESSAGE, "incoming");
   }
 );
 
 async function consultarInventario(categoria) {
   await doc.loadInfo();
-  let sheet = doc.sheetsByTitle["Inventario"]; // AQUÍ DEBES PONER EL NOMBRE DE TU HOJA
+  let sheet = doc.sheetsByTitle["Inventario"];
 
   consultaInventario = [];
 
@@ -133,7 +132,7 @@ async function consultarInventario(categoria) {
     const row = rows[i];
 
     if (row.get("Categoria") === categoria && row.get("Stock") > 0) {
-      // AQUÍ LE PEDIMOS A LA FUNCION QUE CONSULTE LOS DATOS QUE QUEREMOS CONSULTAR EJEMPLO:
+      // AQUÍ LE PEDIMOS A LA FUNCION QUE CONSULTE LOS DATOS QUE QUEREMOS CONSULTAR
       const objeto = {
         producto: row.get("Producto"),
         stock: row.get("Stock"),
@@ -145,22 +144,45 @@ async function consultarInventario(categoria) {
   return consultaInventario;
 }
 
-const flowPrincipal = addKeyword(EVENTS.WELCOME)
-  .addAnswer("Bienvenido a Tierra Libre!")
-  .addAnswer("Te envio el catalogo de productos", {
-    media:
-    "./catalogo-test.png",
+const flowPrincipal = addKeyword(["Hola", "ole"])
+  .addAction(async (ctx, { flowDynamic }) => {
+    const CLIENT_MESSAGE = ctx.body;
+    const BOT_MESSAGE = "Bienvenido a *Tierra Libre*!";
+    await sendMessageChatWoot(CLIENT_MESSAGE, "incoming");
+    await sendMessageChatWoot(BOT_MESSAGE, "outgoing");
+    await sleep(2000);
+    await flowDynamic(BOT_MESSAGE);
   })
-  .addAnswer("Si quieres comprar escribe *quiero comprar*");
-
+  .addAction(async (_, { flowDynamic }) => {
+    await sleep(2000);
+    const MESSAGE = "Te envio el catalogo de productos";
+    await sendMessageChatWoot(MESSAGE, "outgoing");
+    await flowDynamic([
+      {
+        body: `${MESSAGE}`,
+        media: `./catalogo-test.png`,
+      },
+    ]);
+  })
+  .addAction(async (_, { flowDynamic }) => {
+    sleep(2000);
+    const MESSAGE = "Si quieres comprar escribe *Quiero comprar*";
+    await sendMessageChatWoot(MESSAGE, "outgoing");
+    await flowDynamic(MESSAGE);
+  });
 
 const flowInventario = addKeyword("Quiero comprar")
-  .addAnswer(
-    [
-      "Escribe el *nombre* de la categoria de productos que te interesa comprar",
-      "1. Pastelería vegana",
-      "2. Panadería vegana",
-    ],
+  .addAction(async (ctx, { flowDynamic }) => {
+    const CLIENT_MESSAGE = ctx.body;
+    await sendMessageChatWoot(CLIENT_MESSAGE, "incoming");
+  })
+  .addAction(async (_, { flowDynamic }) => {
+    const BOT_MESSAGE =
+      "Escribe el *nombre* de la categoria de productos que te interesa comprar:\n 1. Pastelería vegana\n 2. Panadería vegana";
+    await sendMessageChatWoot(BOT_MESSAGE, "outgoing");
+    await flowDynamic(BOT_MESSAGE);
+  })
+  .addAction(
     { capture: true },
     async (ctx, { flowDynamic, fallBack, state }) => {
       telefono = ctx.from;
@@ -172,12 +194,11 @@ const flowInventario = addKeyword("Quiero comprar")
         return fallBack();
       }
       state.update({ categoria: ctx.body });
-      //const currentState = state.getMyState();
-      await flowDynamic([
-        {
-          body: `Espera unos segundos para traerte los productos disponibles de ${ctx.body} 😁`,
-        },
-      ]);
+      const CLIENT_MESSAGE = ctx.body;
+      const BOT_MESSAGE = `Espera unos segundos para traerte los productos disponibles de ${ctx.body} 😁`;
+      await sendMessageChatWoot(CLIENT_MESSAGE, "incoming");
+      await sendMessageChatWoot(BOT_MESSAGE, "outgoing");
+      await flowDynamic(BOT_MESSAGE);
     }
   )
   .addAction(async (ctx, { flowDynamic }) => {
@@ -189,12 +210,17 @@ const flowInventario = addKeyword("Quiero comprar")
     const mapeoDeLista = consultaInventario.map((item) => ({
       body: [`*${item.producto}*`, `x: ${item.stock}`].join("\n"),
     }));
+    await sendMessageChatWoot(mapeoDeLista, "outgoing");
     await flowDynamic(mapeoDeLista);
   })
   .addAnswer(
     "Te gustaria pedir alguno de estos productos? Dime cuáles y cuántos",
-    { delay: 1000, capture: true },
+    { delay: 2000, capture: true },
     async (ctx, { gotoFlow }) => {
+      await sendMessageChatWoot(
+        "Te gustaria pedir alguno de estos productos? Dime cuáles y cuántos",
+        "outgoing"
+      );
       const listado_productos =
         "[" +
         consultaInventario
@@ -241,7 +267,7 @@ const flowConfirmarPagar = addKeyword(EVENTS.ACTION)
     async (ctx, { flowDynamic, state }) => {
       telefono = ctx.from;
       await state.update({ nombre: ctx.body });
-      flowDynamic('Gracias por escribir tu nombre')
+      flowDynamic("Gracias por escribir tu nombre");
     }
   )
   .addAction(async (ctx, { flowDynamic, state }) => {
@@ -253,18 +279,16 @@ const flowConfirmarPagar = addKeyword(EVENTS.ACTION)
       valor: currentState.valor,
       pedido: currentState.pedido,
     });
-    await flowDynamic( `Gracias ${currentState.nombre} por realizar tu pedido en Tierra Libre, puedes pasar a retirarlo mañana de 10:00 a 18:00 hrs `);
+    await flowDynamic(
+      `Gracias ${currentState.nombre} por realizar tu pedido en Tierra Libre, puedes pasar a retirarlo mañana de 10:00 a 18:00 hrs `
+    );
   })
-.addAnswer(
-  "Inventario actualizado",
-  null,
-  async (_,{state}) => {
-    const currentState = state.getMyState()
+  .addAnswer("Inventario actualizado", null, async (_, { state }) => {
+    const currentState = state.getMyState();
     const compraCliente = formatResumeBot(currentState.pedido);
     const updated = await updateInventory(compraCliente);
-    console.log(updated)
-  }
-);
+    console.log(updated);
+  });
 
 const flowResumen = addKeyword("resumen")
   .addAnswer(
@@ -286,7 +310,7 @@ const flowResumen = addKeyword("resumen")
         "\nTu respondes: solamente el resumen, sin otra palabra",
       ].join(" ");
 
-      console.log(PROMPTRESUMEN2)
+      console.log(PROMPTRESUMEN2);
 
       const response = await ChatGPTInstance.handleMsgChatGPT(PROMPTRESUMEN2);
       const message = response.text;
@@ -300,7 +324,7 @@ const flowResumen = addKeyword("resumen")
       currentState.categoria
     );
     const productosSeleccionados = formatResumeBot(currentState.pedido);
-    console.log("productosSeleccionados",productosSeleccionados)
+    console.log("productosSeleccionados", productosSeleccionados);
     const precioTotal = calcularPrecioTotal(
       productosSeleccionados,
       consultaInventario
@@ -315,12 +339,12 @@ const flowResumen = addKeyword("resumen")
   .addAnswer(
     "Confirmas? *Si* o *No*",
     { delay: 1000, capture: true },
-    async(ctx, {gotoFlow, flowDynamic})=> {
-      if (ctx.body.toLowerCase() === 'si'){
-        await gotoFlow(flowConfirmarPagar)
+    async (ctx, { gotoFlow, flowDynamic }) => {
+      if (ctx.body.toLowerCase() === "si") {
+        await gotoFlow(flowConfirmarPagar);
       } else {
-        await flowDynamic(`Perfecto`)
-        await gotoFlow(flowInventario)
+        await flowDynamic(`Perfecto`);
+        await gotoFlow(flowInventario);
       }
     }
   );
@@ -332,17 +356,21 @@ const main = async () => {
     flowInventario,
     flowResumen,
     flowEmpty,
-    flowConfirmarPagar
+    flowConfirmarPagar,
+    prueba,
   ]);
+
   const adapterProvider = createProvider(BaileysProvider);
 
-  createBot({
+  await createBot({
     flow: adapterFlow,
     provider: adapterProvider,
     database: adapterDB,
   });
 
-  QRPortalWeb();
+  const server = new ServerHttp(adapterProvider);
+
+  server.start();
 };
 
 main();
